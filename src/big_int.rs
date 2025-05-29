@@ -1,5 +1,5 @@
-const CHUNK_SIZE: usize = 64;
-type ChunkType = u64;
+const CHUNK_SIZE: usize = 8;
+type ChunkType = u8;
 
 use std::{cmp::min, ops::Index, sync::OnceLock};
 
@@ -12,6 +12,11 @@ pub fn TEN() -> &'static BigInt {
 pub fn ONE() -> &'static BigInt {
     static ONE: OnceLock<BigInt> = OnceLock::new();
     ONE.get_or_init(|| BigInt::from(1))
+}
+
+pub fn ZERO() -> &'static BigInt {
+    static ZERO: OnceLock<BigInt> = OnceLock::new();
+    ZERO.get_or_init(|| BigInt::from(0))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,21 +45,23 @@ impl TryFrom<&str> for BigInt {
                 trim(&mut chunks);
                 Ok(BigInt { chunks })
             }
-            // "0x" => {
-            //     let hex_str = &value[2..];
-            //     if hex_str.chars().any(|c| {
-            //         !matches!(
-            //             c,
-            //             '0'..='9'
-            //                 | 'a'..='f'
-            //                 | '_'
-            //         )
-            //     }) {
-            //         return Err("Invalid hexadecimal string".to_string());
-            //     }
-            //     OkSelf::hex_parse(hex_str);
-            //     Ok(BigInt { chunks })
-            // }
+            "0x" => {
+                let hex_str = &value[2..];
+                if hex_str.chars().any(|c| {
+                    !matches!(
+                        c,
+                        '0'..='9'
+                            | 'a'..='f'
+                            | 'A'..='F'
+                            | '_'
+                    )
+                }) {
+                    return Err("Invalid hexadecimal string".to_string());
+                }
+                let mut chunks = Self::hex_parse(hex_str);
+                trim(&mut chunks);
+                Ok(BigInt { chunks })
+            }
             _ => {
                 if value.chars().any(|c| !matches!(c, '0'..='9' | '_')) {
                     return Err("Invalid decimal string".to_string());
@@ -84,8 +91,7 @@ impl BigInt {
     }
 
     fn bin_parse(bit_str: &str) -> Vec<ChunkType> {
-        // split into CHUNK_SIZE bits from the end; first yielded is least‐significant
-        let chunks: Vec<ChunkType> = bit_str
+        bit_str
             .bytes()
             .filter(|&b| b != b'_')
             .map(|b| b - b'0')
@@ -96,20 +102,40 @@ impl BigInt {
                     .iter()
                     .fold(0, |acc, &bit| (acc << 1) | bit as ChunkType)
             })
-            .collect();
-
-        chunks
+            .collect()
     }
 
-    fn dec_parse(dec_str: &str) -> BigInt {
-        let mut temp: BigInt = BigInt::from(0);
-        for c in dec_str.chars().skip_while(|&c| c == '0') {
-            temp *= TEN().clone();
-            temp += BigInt::from(c as ChunkType - '0' as ChunkType);
+    fn hex_parse(hex_str: &str) -> Vec<ChunkType> {
+        hex_str
+            .bytes()
+            .filter(|&b| b != b'_') // drop underscores inline
+            .collect::<Vec<_>>()
+            .rchunks(CHUNK_SIZE / 4)
+            .map(|chunk| {
+                chunk.iter().fold(0 as ChunkType, |acc, &byte| {
+                    (acc << 4) | Self::hex_char(byte)
+                })
+            })
+            .collect()
+    }
+
+    fn hex_char(byte: u8) -> ChunkType {
+        match byte {
+            b'0'..=b'9' => (byte - b'0') as ChunkType,
+            b'A'..=b'F' => (byte - b'A' + 10) as ChunkType,
+            b'a'..=b'f' => (byte - b'a' + 10) as ChunkType,
+            _ => panic!("Invalid hex character{}", byte),
         }
-        return temp;
     }
-
+    fn dec_parse(dec_str: &str) -> BigInt {
+        dec_str
+            .trim_start_matches("0")
+            .chars()
+            .filter(|&x| x != '_')
+            .fold(ZERO().clone(), |acc, c| {
+                acc * TEN().clone() + BigInt::from(c as ChunkType - b'0' as ChunkType)
+            })
+    }
     pub fn bit(&self, index: usize) -> ChunkType {
         let chunk: ChunkType = self.chunks[index / CHUNK_SIZE].clone();
 
