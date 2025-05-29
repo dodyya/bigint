@@ -188,6 +188,33 @@ impl std::fmt::Display for BigInt {
     }
 }
 
+impl std::fmt::LowerHex for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for digit in self.chunks.iter().rev() {
+            write!(f, "{:0>width$x}", digit, width = CHUNK_SIZE / 4)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::UpperHex for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for digit in self.chunks.iter().rev() {
+            write!(f, "{:0>width$X}", digit, width = CHUNK_SIZE / 4)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Binary for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for digit in self.chunks.iter().rev() {
+            write!(f, "{:0>width$b}", digit, width = CHUNK_SIZE)?;
+        }
+        Ok(())
+    }
+}
+
 impl std::ops::Add for BigInt {
     type Output = BigInt;
 
