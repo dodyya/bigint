@@ -1,8 +1,9 @@
 mod big_int;
 use big_int::BigInt;
+use big_int::one;
 use std::time::Instant;
 fn main() {
-    let mut n = BigInt::try_from("0xFFFFFF").unwrap();
-    // n <<= 10000;
-    println!("{}", n)
+    let two = BigInt::from(2);
+    let mut n = BigInt::from(1);
+    println!("{:x}", one() << 1)
 }

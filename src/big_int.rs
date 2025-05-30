@@ -4,19 +4,24 @@ type ChunkType = u8;
 use std::{cmp::min, ops::Index, sync::OnceLock};
 
 // Global constant for BigInt with value 10
-pub fn TEN() -> &'static BigInt {
+pub fn ten() -> &'static BigInt {
     static TEN: OnceLock<BigInt> = OnceLock::new();
     TEN.get_or_init(|| BigInt::from(10))
 }
 
-pub fn ONE() -> &'static BigInt {
+pub fn zero() -> &'static BigInt {
+    static ZERO: OnceLock<BigInt> = OnceLock::new();
+    ZERO.get_or_init(|| BigInt::from(0))
+}
+
+pub fn one() -> &'static BigInt {
     static ONE: OnceLock<BigInt> = OnceLock::new();
     ONE.get_or_init(|| BigInt::from(1))
 }
 
-pub fn ZERO() -> &'static BigInt {
-    static ZERO: OnceLock<BigInt> = OnceLock::new();
-    ZERO.get_or_init(|| BigInt::from(0))
+pub fn two() -> &'static BigInt {
+    static TWO: OnceLock<BigInt> = OnceLock::new();
+    TWO.get_or_init(|| BigInt::from(2))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,8 +137,8 @@ impl BigInt {
             .trim_start_matches("0")
             .chars()
             .filter(|&x| x != '_')
-            .fold(ZERO().clone(), |acc, c| {
-                acc * TEN().clone() + BigInt::from(c as ChunkType - b'0' as ChunkType)
+            .fold(zero().clone(), |acc, c| {
+                &(&acc * &ten()) + &BigInt::from(c as ChunkType - b'0' as ChunkType)
             })
     }
     pub fn bit(&self, index: usize) -> ChunkType {
@@ -165,11 +170,7 @@ impl BigInt {
     }
 
     fn digit(&self) -> ChunkType {
-        (self.clone() % TEN().clone())
-            .chunks
-            .first()
-            .unwrap_or(&0)
-            .clone()
+        (self % ten()).chunks.first().unwrap_or(&0).clone()
     }
 }
 
@@ -181,7 +182,7 @@ impl std::fmt::Display for BigInt {
         let mut out: String = "".into();
         while temp.len() > 0 {
             out.extend(digit.to_string().chars());
-            temp /= TEN().clone();
+            temp /= ten();
             digit = temp.digit();
         }
         write!(f, "{}", out.chars().rev().collect::<String>())
@@ -190,8 +191,14 @@ impl std::fmt::Display for BigInt {
 
 impl std::fmt::LowerHex for BigInt {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for digit in self.chunks.iter().rev() {
-            write!(f, "{:0>width$x}", digit, width = CHUNK_SIZE / 4)?;
+        let chunks = &self.chunks;
+        if !chunks.is_empty() {
+            write!(f, "{:x}", chunks.last().unwrap())?;
+            for digit in chunks.iter().rev().skip(1) {
+                write!(f, "{:0>width$x}", digit, width = CHUNK_SIZE / 4)?;
+            }
+        } else {
+            write!(f, "0")?;
         }
         Ok(())
     }
@@ -199,8 +206,14 @@ impl std::fmt::LowerHex for BigInt {
 
 impl std::fmt::UpperHex for BigInt {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for digit in self.chunks.iter().rev() {
-            write!(f, "{:0>width$X}", digit, width = CHUNK_SIZE / 4)?;
+        let chunks = &self.chunks;
+        if !chunks.is_empty() {
+            write!(f, "{:X}", chunks.last().unwrap())?;
+            for digit in chunks.iter().rev().skip(1) {
+                write!(f, "{:0>width$X}", digit, width = CHUNK_SIZE / 4)?;
+            }
+        } else {
+            write!(f, "0")?;
         }
         Ok(())
     }
@@ -215,10 +228,10 @@ impl std::fmt::Binary for BigInt {
     }
 }
 
-impl std::ops::Add for BigInt {
+impl<'a> std::ops::Add for &'a BigInt {
     type Output = BigInt;
 
-    fn add(self, other: BigInt) -> BigInt {
+    fn add(self, other: &'a BigInt) -> BigInt {
         let len1 = self.chunks.len();
         let len2 = other.chunks.len();
         let max_len = std::cmp::max(len1, len2);
@@ -243,7 +256,7 @@ impl std::ops::Add for BigInt {
     }
 }
 
-impl std::ops::Shl<u32> for BigInt {
+impl std::ops::Shl<u32> for &BigInt {
     type Output = BigInt;
 
     fn shl(self, rhs: u32) -> BigInt {
@@ -277,14 +290,58 @@ impl std::ops::Shl<u32> for BigInt {
 
 impl std::ops::ShlAssign<u32> for BigInt {
     fn shl_assign(&mut self, rhs: u32) {
-        *self = self.clone() << rhs;
+        *self = &*self << rhs;
     }
 }
 
-impl std::ops::Sub for BigInt {
+impl std::ops::Shr<u32> for &BigInt {
     type Output = BigInt;
 
-    fn sub(self, other: BigInt) -> BigInt {
+    fn shr(self, rhs: u32) -> BigInt {
+        let big_offset = rhs / CHUNK_SIZE as u32;
+        let little_offset = rhs % CHUNK_SIZE as u32;
+
+        if big_offset >= self.chunks.len() as u32 {
+            return BigInt::from(0);
+        }
+
+        let mut out = self.chunks.clone();
+
+        // Remove chunks for big shifts (multiples of CHUNK_SIZE)
+        if big_offset > 0 {
+            out.drain(0..big_offset as usize);
+        }
+
+        // Handle shifts smaller than CHUNK_SIZE
+        if little_offset != 0 {
+            let mut old_underflow: ChunkType = 0;
+            let mut new_underflow: ChunkType;
+
+            for i in (0..out.len()).rev() {
+                new_underflow = out[i] & ((1 << little_offset) - 1); // Bits that would be shifted out to the right
+                out[i] >>= little_offset;
+                out[i] |= old_underflow << (CHUNK_SIZE as u32 - little_offset);
+                old_underflow = new_underflow;
+            }
+        }
+
+        // Trim leading zeros
+        trim(&mut out);
+
+        BigInt { chunks: out }
+    }
+}
+
+impl std::ops::ShrAssign<u32> for BigInt {
+    fn shr_assign(&mut self, rhs: u32) {
+        *self = &*self >> rhs;
+    }
+}
+
+impl<'a> std::ops::Sub<&'a BigInt> for &'a BigInt {
+    type Output = BigInt;
+
+    fn sub(self, other: &'a BigInt) -> BigInt {
         let len1 = self.chunks.len();
         let len2 = other.chunks.len();
         let max_len = std::cmp::max(len1, len2);
@@ -307,29 +364,29 @@ impl std::ops::Sub for BigInt {
     }
 }
 
-impl std::ops::AddAssign for BigInt {
-    fn add_assign(&mut self, other: BigInt) {
-        *self = self.clone() + other;
+impl<'a> std::ops::AddAssign<&'a BigInt> for BigInt {
+    fn add_assign(&mut self, other: &'a BigInt) {
+        *self = &*self + other;
     }
 }
 
-impl std::ops::SubAssign for BigInt {
-    fn sub_assign(&mut self, other: BigInt) {
-        *self = self.clone() - other;
+impl<'a> std::ops::SubAssign<&'a BigInt> for BigInt {
+    fn sub_assign(&mut self, other: &'a BigInt) {
+        *self = &*self - other;
     }
 }
 
-impl std::ops::Mul for BigInt {
+impl<'a> std::ops::Mul<&'a BigInt> for &'a BigInt {
     type Output = BigInt;
 
-    fn mul(self, other: BigInt) -> BigInt {
+    fn mul(self, other: &'a BigInt) -> BigInt {
         let mut out: BigInt = BigInt::from(0);
         let mut shift = 0;
 
         for i in 0..self.chunks.len() {
             for j in 0..CHUNK_SIZE {
                 if self.chunks[i] & (1 << j) != 0 {
-                    out += other.clone() << shift;
+                    out += &(other << shift);
                 }
 
                 shift += 1;
@@ -340,9 +397,9 @@ impl std::ops::Mul for BigInt {
     }
 }
 
-impl std::ops::MulAssign for BigInt {
-    fn mul_assign(&mut self, other: BigInt) {
-        *self = self.clone() * other;
+impl<'a> std::ops::MulAssign<&'a BigInt> for BigInt {
+    fn mul_assign(&mut self, other: &'a BigInt) {
+        *self = &*self * other;
     }
 }
 
@@ -362,19 +419,19 @@ impl std::cmp::PartialOrd for BigInt {
     }
 }
 
-impl std::ops::Div for BigInt {
+impl<'a> std::ops::Div<&'a BigInt> for &'a BigInt {
     type Output = BigInt;
 
-    fn div(self, other: BigInt) -> BigInt {
+    fn div(self, other: &'a BigInt) -> BigInt {
         let len = self.len();
         let mut out: BigInt = BigInt::from(0);
         let mut temp = BigInt::from(0);
 
         for i in (0..len).rev() {
             temp <<= 1;
-            temp += BigInt::from(self.bit(i));
-            if temp >= other {
-                temp -= other.clone();
+            temp += &BigInt::from(self.bit(i));
+            if temp >= *other {
+                temp -= other;
                 out.set_bit(i, true);
             }
         }
@@ -383,37 +440,24 @@ impl std::ops::Div for BigInt {
     }
 }
 
-impl std::ops::DivAssign for BigInt {
-    fn div_assign(&mut self, other: BigInt) {
-        let len = self.len();
-        let mut out: BigInt = BigInt::from(0);
-        let mut temp = BigInt::from(0);
-
-        for i in (0..len).rev() {
-            temp <<= 1;
-            temp += BigInt::from(self.bit(i));
-            if temp >= other {
-                temp -= other.clone();
-                out.set_bit(i, true);
-            }
-        }
-
-        self.chunks = out.chunks;
+impl<'a> std::ops::DivAssign<&'a BigInt> for BigInt {
+    fn div_assign(&mut self, other: &'a BigInt) {
+        *self = &*self / other;
     }
 }
 
-impl std::ops::Rem for BigInt {
+impl<'a> std::ops::Rem<&'a BigInt> for &'a BigInt {
     type Output = BigInt;
 
-    fn rem(self, other: BigInt) -> BigInt {
+    fn rem(self, other: &'a BigInt) -> BigInt {
         let len = self.len();
         let mut temp = BigInt::from(0);
 
         for i in (0..len).rev() {
             temp <<= 1;
-            temp += BigInt::from(self.bit(i));
-            if temp >= other {
-                temp -= other.clone();
+            temp += &BigInt::from(self.bit(i));
+            if temp >= *other {
+                temp -= other;
             }
         }
 
@@ -437,3 +481,64 @@ impl std::ops::Rem for BigInt {
 //            11
 //
 //
+
+impl BigInt {
+    pub fn sq(&self) -> BigInt {
+        let mut out: BigInt = BigInt::from(0);
+        let mut shift = 0;
+
+        for i in 0..self.chunks.len() {
+            for j in 0..CHUNK_SIZE {
+                if self.chunks[i] & (1 << j) != 0 {
+                    out += &(self << shift);
+                }
+
+                shift += 1;
+            }
+        }
+
+        out
+    }
+
+    pub fn pow(&self, mut n: u32) -> BigInt {
+        if n == 0 {
+            return one().clone();
+        }
+        let mut y = one().clone();
+        let mut x = self.clone();
+        while n > 1 {
+            if n % 2 == 1 {
+                y *= &x;
+                n -= 1;
+            }
+            x = x.sq();
+            n >>= 1;
+        }
+
+        &x * &y
+    }
+
+    pub fn modpow(&self, n: &BigInt, modulus: &BigInt) -> BigInt {
+        let mut result = BigInt::from(1);
+        let mut base = self.clone();
+        let mut exp = n.clone();
+        base = &base % modulus;
+
+        while exp > *zero() {
+            if &exp % two() == *one() {
+                result = &(&result * &base) % modulus;
+            }
+            exp = &exp >> 1;
+            base = &(&base * &base) % modulus;
+        }
+
+        result
+    }
+
+    pub fn gcd(a: BigInt, b: BigInt) -> BigInt {
+        if &a == zero() {
+            return b;
+        }
+        return BigInt::gcd(&b % &a, a);
+    }
+}
