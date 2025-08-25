@@ -1,5 +1,5 @@
-const CHUNK_SIZE: usize = 8;
-type ChunkType = u8;
+const CHUNK_SIZE: usize = 64;
+type ChunkType = u64;
 
 use std::{cmp::min, ops::Index, sync::OnceLock};
 
@@ -171,6 +171,10 @@ impl BigInt {
 
     fn digit(&self) -> ChunkType {
         (self % ten()).chunks.first().unwrap_or(&0).clone()
+    }
+
+    pub fn is_even(&self) -> bool {
+        self.chunks[0] & 1 == 0
     }
 }
 
