@@ -7,6 +7,7 @@ fn main() {
     let one = BigInt::from(1);
     let two = BigInt::from(2);
     let three = BigInt::from(3);
+
     let mut max_len = 0;
     let mut max_start = BigInt::from(0);
     for i in 0..(1 << 16) {
@@ -15,7 +16,7 @@ fn main() {
         while collatz != one {
             len += 1;
             if collatz.is_even() {
-                collatz = &collatz / &two;
+                collatz >>= 1;
             } else {
                 collatz = &(&collatz * &three) + &one;
             }

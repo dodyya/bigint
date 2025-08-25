@@ -132,6 +132,7 @@ impl BigInt {
             _ => panic!("Invalid hex character{}", byte),
         }
     }
+
     fn dec_parse(dec_str: &str) -> BigInt {
         dec_str
             .trim_start_matches("0")
@@ -141,6 +142,7 @@ impl BigInt {
                 &(&acc * &ten()) + &BigInt::from(c as ChunkType - b'0' as ChunkType)
             })
     }
+
     pub fn bit(&self, index: usize) -> ChunkType {
         let chunk: ChunkType = self.chunks[index / CHUNK_SIZE].clone();
 
